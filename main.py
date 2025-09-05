@@ -5,6 +5,7 @@ import pyperclip
 from Library import event
 import time
 import asyncio
+import rumps
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,13 +16,13 @@ event = event.EventManager()
 
 import time
 from Library import mcb
+import threading
 
 history = {}
 MacClipboard = mcb.MacClipboard
 
 
 def wait_for_clipboard_change():
-    """クリップボードの内容（テキスト or 画像）が変わるまで待機"""
     last_text = MacClipboard.get_text()
     last_img = MacClipboard.get_image()
 
@@ -42,7 +43,6 @@ def wait_for_clipboard_change():
 
 
 def images_equal(img1, img2):
-    """Pillow Image同士を比較（同じならTrue）"""
     if img1 is None or img2 is None:
         return False
     return list(img1.getdata()) == list(img2.getdata())
@@ -57,10 +57,107 @@ def on_clipboard_changed(data_type, value):
         logger.info(f"Clipboard changed (text): {value}")
     elif data_type == "image":
         logger.info(f"Clipboard changed (image)")
-        value.show()
 
     # 変更履歴に追加
     history[time.time()] = (data_type, value)
 
 
-asyncio.run(event.run(interval=0.1))
+# == macOS menuBar ==
+
+
+class ClipboardMonitorApp(rumps.App):
+    def __init__(self):
+        super(ClipboardMonitorApp, self).__init__("CopyBento")
+        # クラス内の履歴は使わず、下の history(dict) を参照する
+        self.history = []  # 互換のために残すが未使用
+        self.menu = [
+            "CopyBento",
+            rumps.separator,
+            *self._build_history_items(),
+            rumps.separator,
+            "All rights reserved by amania",
+        ]
+        # UI スレッド以外からの更新を避けるため、1秒ごとにメニューを再構築
+        self._timer = rumps.Timer(self._refresh_history, 1.0)
+        self._timer.start()
+
+    def _build_history_items(self):
+        items_out = []
+        # 直近の履歴 20 件を新しい順で表示
+        try:
+            items = sorted(history.items(), key=lambda kv: kv[0], reverse=True)[:20]
+        except Exception:
+            items = []
+
+        if not items:
+            items_out.append(
+                rumps.MenuItem("(No history yet)", callback=lambda _: None)
+            )
+            return items_out
+
+        for idx, (_ts, (data_type, value)) in enumerate(items):
+            if data_type == "text":
+                text = value if isinstance(value, str) else str(value)
+                preview = (text[:100] + "...") if len(text) > 100 else text
+                title = f"{idx+1}: {preview}"
+            else:
+                title = f"{idx+1}: [Image]"
+
+            items_out.append(
+                rumps.MenuItem(
+                    title, callback=self.create_history_callback(data_type, value)
+                )
+            )
+
+        return items_out
+
+    def create_history_callback(self, data_type, value):
+        def _cb(_):
+            try:
+                if data_type == "text":
+                    MacClipboard.set_text(value)
+                    rumps.notification(
+                        "CopyBento", "Copied from History", "Text item copied"
+                    )
+                else:
+                    MacClipboard.set_image(value)
+                    rumps.notification(
+                        "CopyBento", "Copied from History", "Image item copied"
+                    )
+            except Exception as e:
+                logger.exception("Failed to copy from history: %s", e)
+                rumps.notification("CopyBento", "Error", str(e))
+
+        return _cb
+
+    def _refresh_history(self, _):
+        # ルートメニューを再構築（軽量なため簡易実装）
+        self.menu.clear()
+        self.menu = [
+            "CopyBento",
+            rumps.separator,
+            *self._build_history_items(),
+            rumps.separator,
+            "All rights reserved by amania",
+        ]
+
+    # immediate refresh
+
+
+app = ClipboardMonitorApp()
+
+
+# Run the async EventManager in a background thread
+_loop = asyncio.new_event_loop()
+
+
+def _run_asyncio():
+    asyncio.set_event_loop(_loop)
+    _loop.create_task(event.run(interval=0.1))
+    _loop.run_forever()
+
+
+threading.Thread(target=_run_asyncio, daemon=True).start()
+
+# Run the menu bar app on the main thread
+app.run()
