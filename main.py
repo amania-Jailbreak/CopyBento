@@ -16,10 +16,12 @@ event = event.EventManager()
 
 import time
 from Library import mcb
+from Library.plugin import PluginManager
 import threading
 
 history = {}
 MacClipboard = mcb.MacClipboard
+plugins = PluginManager(os.path.join(os.path.dirname(__file__), "Plugins"))
 
 
 def wait_for_clipboard_change():
@@ -53,6 +55,12 @@ event.add("clipboard_changed", wait_for_clipboard_change)
 
 @event.event("clipboard_changed")
 def on_clipboard_changed(data_type, value):
+    # Plugins can transform or skip the clipboard event
+    processed = plugins.process(data_type, value)
+    if processed is PluginManager.SKIP:
+        logger.info("Clipboard event skipped by plugin")
+        return
+    data_type, value = processed
     if data_type == "text":
         logger.info(f"Clipboard changed (text): {value}")
     elif data_type == "image":
@@ -70,11 +78,15 @@ class ClipboardMonitorApp(rumps.App):
         super(ClipboardMonitorApp, self).__init__("CopyBento")
         # クラス内の履歴は使わず、下の history(dict) を参照する
         self.history = []  # 互換のために残すが未使用
+        # Build plugin toggle submenu
+        plugin_items = self._build_plugin_items()
+
         self.menu = [
             "CopyBento",
             rumps.separator,
             *self._build_history_items(),
             rumps.separator,
+            plugin_items,
             "All rights reserved by amania",
         ]
         # UI スレッド以外からの更新を避けるため、1秒ごとにメニューを再構築
@@ -111,6 +123,28 @@ class ClipboardMonitorApp(rumps.App):
 
         return items_out
 
+    def _build_plugin_items(self):
+        submenu = rumps.MenuItem("Plugins")
+        for name, enabled in plugins.list_plugins():
+            item = rumps.MenuItem(
+                f"{'✅' if enabled else '❌'} {name}",
+                callback=self._toggle_plugin_cb(name),
+            )
+            submenu.add(item)
+        if not submenu._menu:  # type: ignore[attr-defined]
+            submenu.add(rumps.MenuItem("(No plugins)", callback=lambda _: None))
+        return submenu
+
+    def _toggle_plugin_cb(self, name: str):
+        def _cb(_):
+            # Toggle state
+            current = dict(plugins.list_plugins()).get(name, True)
+            plugins.set_enabled(name, not current)
+            # refresh plugin menu immediately
+            self._refresh_history(None)
+
+        return _cb
+
     def create_history_callback(self, data_type, value):
         def _cb(_):
             try:
@@ -138,6 +172,7 @@ class ClipboardMonitorApp(rumps.App):
             rumps.separator,
             *self._build_history_items(),
             rumps.separator,
+            self._build_plugin_items(),
             "All rights reserved by amania",
         ]
 
