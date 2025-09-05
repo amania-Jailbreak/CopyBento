@@ -41,6 +41,7 @@ def wait_for_clipboard_change():
         # 画像の変化検出（バイト比較すると確実）
         if (current_img is not None) and not images_equal(current_img, last_img):
             last_img = current_img
+
             return ("image", current_img)
 
 
@@ -61,6 +62,7 @@ def on_clipboard_changed(data_type, value):
         logger.info("Clipboard event skipped by plugin")
         return
     data_type, value = processed
+    print(f"Processed clipboard: {data_type}, {type(value)}")
     if data_type == "text":
         logger.info(f"Clipboard changed (text): {value}")
     elif data_type == "image":
