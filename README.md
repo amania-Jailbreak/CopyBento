@@ -1,4 +1,4 @@
-# CopyBento
+# <img src="logo.png" width="50px"> CopyBento
 
 macOS メニューバー常駐のクリップボード履歴 + プラグイン対応ツール。
 
