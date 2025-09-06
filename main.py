@@ -58,6 +58,7 @@ event.add("clipboard_changed", wait_for_clipboard_change)
 def on_clipboard_changed(data_type, value):
     # Plugins can transform or skip the clipboard event
     processed = plugins.process(data_type, value)
+    print(processed)
     if processed is PluginManager.SKIP:
         logger.info("Clipboard event skipped by plugin")
         return
