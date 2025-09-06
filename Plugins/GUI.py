@@ -4,6 +4,7 @@ from Cocoa import (
     NSApp,
     NSRunningApplication,
     NSApplicationActivationPolicyRegular,
+    NSApplicationActivationPolicyAccessory,
 )
 from Cocoa import (
     NSWindow,
@@ -1228,7 +1229,11 @@ def main():
     app = NSApplication.sharedApplication()
     delegate = AppDelegate.alloc().init()
     app.setDelegate_(delegate)
-    app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+    # ウィンドウは表示しつつ Dock からは非表示にする
+    try:
+        app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    except Exception:
+        app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
     app.run()
 
 

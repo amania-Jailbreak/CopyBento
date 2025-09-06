@@ -70,7 +70,6 @@ class EventManager:
 
             flags = int(ev.modifierFlags())
             mods = set()
-            print(f"Key event: {ev}, flags: {flags}")
             if flags & int(NSEventModifierFlagCommand):
                 mods.add("cmd")
             if flags & int(NSEventModifierFlagControl):

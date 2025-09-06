@@ -248,11 +248,6 @@ def on_clipboard_changed(data_type, value):
         logger.info("Clipboard event skipped by plugin")
         return
     data_type, value = processed
-    print(f"Processed clipboard: {data_type}, {type(value)}")
-    if data_type == "text":
-        logger.info(f"Clipboard changed (text): {value}")
-    elif data_type == "image":
-        logger.info(f"Clipboard changed (image)")
 
     # 変更履歴に追加
     history[time.time()] = (data_type, value)
@@ -261,170 +256,6 @@ def on_clipboard_changed(data_type, value):
         _persist_history(list(history.keys())[-1], data_type, value)
     except Exception:
         pass
-
-
-# == macOS menuBar ==
-
-
-class ClipboardMonitorApp(rumps.App):
-    def __init__(self):
-        super(ClipboardMonitorApp, self).__init__("CopyBento")
-        # クラス内の履歴は使わず、下の history(dict) を参照する
-        self.history = []  # 互換のために残すが未使用
-        # Build plugin toggle submenu
-        plugin_items = self._build_plugin_items()
-
-        self.menu = [
-            "CopyBento",
-            rumps.separator,
-            *self._build_history_items(),
-            rumps.separator,
-            plugin_items,
-            rumps.MenuItem(
-                "Open Accessibility Settings", callback=self._open_accessibility_cb
-            ),
-            "All rights reserved by amania",
-        ]
-        # UI スレッド以外からの更新を避けるため、1秒ごとにメニューを再構築
-        self._timer = rumps.Timer(self._refresh_history, 1.0)
-        self._timer.start()
-        # Ensure hotkeys are installed on main thread
-        try:
-            event.install_hotkey_monitors_on_main_thread()
-        except Exception:
-            pass
-
-        # Accessibility permission prompt (delayed so status item appears first)
-        try:
-            self._acc_timer = rumps.Timer(
-                lambda _: _ensure_accessibility_permission(), 0.3
-            )
-            self._acc_timer.start()
-        except Exception:
-            try:
-                _ensure_accessibility_permission()
-            except Exception:
-                pass
-        # Optional: show a one-time startup notification to confirm residency
-        try:
-            rumps.notification("CopyBento", "Running", "Menu bar app started")
-        except Exception:
-            pass
-
-    def _build_history_items(self):
-        items_out = []
-        # 直近の履歴 20 件を新しい順で表示
-        try:
-            items = sorted(history.items(), key=lambda kv: kv[0], reverse=True)[:20]
-        except Exception:
-            items = []
-
-        if not items:
-            items_out.append(
-                rumps.MenuItem("(No history yet)", callback=lambda _: None)
-            )
-            return items_out
-
-        for idx, (_ts, (data_type, value)) in enumerate(items):
-            if data_type == "text":
-                text = value if isinstance(value, str) else str(value)
-                preview = (text[:100] + "...") if len(text) > 100 else text
-                title = f"{idx+1}: {preview}"
-            else:
-                title = f"{idx+1}: [Image]"
-
-            items_out.append(
-                rumps.MenuItem(
-                    title, callback=self.create_history_callback(data_type, value)
-                )
-            )
-
-        return items_out
-
-    def _build_plugin_items(self):
-        submenu = rumps.MenuItem("Plugins")
-        for name, enabled in plugins.list_plugins():
-            item = rumps.MenuItem(
-                f"{'✅' if enabled else '❌'} {name}",
-                callback=self._toggle_plugin_cb(name),
-            )
-            submenu.add(item)
-        if not submenu._menu:  # type: ignore[attr-defined]
-            submenu.add(rumps.MenuItem("(No plugins)", callback=lambda _: None))
-        return submenu
-
-    def _toggle_plugin_cb(self, name: str):
-        def _cb(_):
-            # Toggle state
-            current = dict(plugins.list_plugins()).get(name, True)
-            new_state = not current
-            plugins.set_enabled(name, new_state)
-            # Persist both display name and module key for compatibility
-            try:
-                for p in plugins.plugins:
-                    if p.get("name") == name:
-                        key = p.get("key") or name
-                        app_settings.set_plugins_enabled(
-                            {name: new_state, key: new_state}
-                        )
-                        break
-            except Exception:
-                pass
-            # refresh plugin menu immediately
-            self._refresh_history(None)
-
-        return _cb
-
-    def create_history_callback(self, data_type, value):
-        def _cb(_):
-            try:
-                if data_type == "text":
-                    MacClipboard.set_text(value)
-                    rumps.notification(
-                        "CopyBento", "Copied from History", "Text item copied"
-                    )
-                else:
-                    MacClipboard.set_image(value)
-                    rumps.notification(
-                        "CopyBento", "Copied from History", "Image item copied"
-                    )
-            except Exception as e:
-                logger.exception("Failed to copy from history: %s", e)
-                rumps.notification("CopyBento", "Error", str(e))
-
-        return _cb
-
-    def _refresh_history(self, _):
-        # ルートメニューを再構築（軽量なため簡易実装）
-        # Apply persisted plugin states so GUI settings take effect without restart
-        try:
-            persisted = app_settings.get_plugins_enabled()
-            for p in plugins.plugins:
-                desired = persisted.get(
-                    p.get("name"), persisted.get(p.get("key"), p.get("enabled", True))
-                )
-                if bool(p.get("enabled", True)) != bool(desired):
-                    # Allow either key or name
-                    plugins.set_enabled(p.get("key") or p.get("name"), bool(desired))
-        except Exception:
-            pass
-        self.menu.clear()
-        self.menu = [
-            "CopyBento",
-            rumps.separator,
-            *self._build_history_items(),
-            rumps.separator,
-            self._build_plugin_items(),
-            "All rights reserved by amania",
-        ]
-
-    def _open_accessibility_cb(self, _):
-        _open_accessibility_pane()
-
-    # immediate refresh
-
-
-app = ClipboardMonitorApp()
 
 
 # Run the async EventManager in a background thread
@@ -439,5 +270,35 @@ def _run_asyncio():
 
 threading.Thread(target=_run_asyncio, daemon=True).start()
 
-# Run the menu bar app on the main thread
-app.run()
+# == Minimal Cocoa app (no menu bar icon) ==
+try:
+    from Cocoa import NSApplication, NSObject, NSApplicationActivationPolicyAccessory
+
+    class MinimalAppDelegate(NSObject):
+        def applicationDidFinishLaunching_(self, _):
+            try:
+                # Install hotkey monitors on the main thread
+                event.install_hotkey_monitors_on_main_thread()
+            except Exception:
+                pass
+            # Accessibility permission prompt (best-effort)
+            try:
+                _ensure_accessibility_permission()
+            except Exception:
+                pass
+
+    _nsapp = NSApplication.sharedApplication()
+    _delegate = MinimalAppDelegate.alloc().init()
+    _nsapp.setDelegate_(_delegate)
+    try:
+        _nsapp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    except Exception:
+        pass
+    _nsapp.run()
+except Exception:
+    # Fallback: keep process alive if Cocoa is unavailable
+    import time as _t
+
+    event.install_hotkey_monitors_on_main_thread()
+    while True:
+        _t.sleep(1)
