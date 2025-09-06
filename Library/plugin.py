@@ -28,39 +28,59 @@ class PluginManager:
         self.load_all()
 
     def load_all(self):
-        if not os.path.isdir(self.plugin_dir):
-            logger.info("Plugin directory not found: %s", self.plugin_dir)
+        # Collect plugin directories: bundled and user config dir
+        dirs = []
+        if os.path.isdir(self.plugin_dir):
+            dirs.append(self.plugin_dir)
+        try:
+            from . import settings as _settings
+
+            user_dir = os.path.join(_settings.get_config_dir(), "plugins")
+            if os.path.isdir(user_dir):
+                dirs.append(user_dir)
+        except Exception:
+            pass
+        if not dirs:
+            logger.info("No plugin directories found")
             return
-        for fname in sorted(os.listdir(self.plugin_dir)):
-            if not fname.endswith(".py") or fname.startswith("_"):
-                continue
-            path = os.path.join(self.plugin_dir, fname)
-            name = os.path.splitext(fname)[0]
-            try:
-                spec = importlib.util.spec_from_file_location(
-                    f"copybento_plugins.{name}", path
-                )
-                if spec is None or spec.loader is None:
-                    raise RuntimeError("Invalid spec for plugin: %s" % path)
-                mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)  # type: ignore[attr-defined]
-                if hasattr(mod, "on_clipboard") and callable(
-                    getattr(mod, "on_clipboard")
-                ):
-                    display = getattr(mod, "NAME", name)
-                    self.plugins.append(
-                        {
-                            "name": display,  # display name (NAME)
-                            "key": name,  # module basename
-                            "module": mod,
-                            "enabled": True,
-                        }
+
+        for d in dirs:
+            for fname in sorted(os.listdir(d)):
+                if not fname.endswith(".py") or fname.startswith("_"):
+                    continue
+                path = os.path.join(d, fname)
+                name = os.path.splitext(fname)[0]
+
+                try:  # --- IGNORE ---
+                    print(
+                        f"Loading plugin module: {name} from {path}"
+                    )  # --- IGNORE ---
+                    spec = importlib.util.spec_from_file_location(
+                        f"copybento_plugins.{name}", path
                     )
-                    logger.info("Loaded plugin: %s", display)
-                else:
-                    logger.warning("Plugin %s missing on_clipboard(); skipped", fname)
-            except Exception as e:
-                logger.exception("Failed to load plugin %s: %s", fname, e)
+                    if spec is None or spec.loader is None:
+                        raise RuntimeError("Invalid spec for plugin: %s" % path)
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)  # type: ignore[attr-defined]
+                    if hasattr(mod, "on_clipboard") and callable(
+                        getattr(mod, "on_clipboard")
+                    ):
+                        display = getattr(mod, "NAME", name)
+                        self.plugins.append(
+                            {
+                                "name": display,  # display name (NAME)
+                                "key": name,  # module basename
+                                "module": mod,
+                                "enabled": True,
+                            }
+                        )
+                        logger.info("Loaded plugin: %s", display)
+                    else:
+                        logger.warning(
+                            "Plugin %s missing on_clipboard(); skipped", fname
+                        )
+                except Exception as e:
+                    logger.exception("Failed to load plugin %s: %s", fname, e)
 
     def process(self, data_type: str, value: Any):
         current_type, current_value = data_type, value
