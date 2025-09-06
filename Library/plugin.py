@@ -31,7 +31,6 @@ class PluginManager:
         if not os.path.isdir(self.plugin_dir):
             logger.info("Plugin directory not found: %s", self.plugin_dir)
             return
-
         for fname in sorted(os.listdir(self.plugin_dir)):
             if not fname.endswith(".py") or fname.startswith("_"):
                 continue
@@ -51,7 +50,8 @@ class PluginManager:
                     display = getattr(mod, "NAME", name)
                     self.plugins.append(
                         {
-                            "name": display,
+                            "name": display,  # display name (NAME)
+                            "key": name,  # module basename
                             "module": mod,
                             "enabled": True,
                         }
@@ -91,8 +91,9 @@ class PluginManager:
         return [(p["name"], bool(p.get("enabled", True))) for p in self.plugins]
 
     def set_enabled(self, name: str, enabled: bool):
+        """Enable/disable a plugin by display NAME or module key."""
         for p in self.plugins:
-            if p["name"] == name:
+            if p.get("name") == name or p.get("key") == name:
                 p["enabled"] = enabled
                 return True
         return False

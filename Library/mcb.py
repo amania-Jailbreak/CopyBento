@@ -11,6 +11,8 @@ import io
 
 
 class MacClipboard:
+    MARKER_TYPE = "org.copybento.source"
+
     @staticmethod
     def get_text():
         """クリップボードからテキストを取得"""
@@ -47,3 +49,21 @@ class MacClipboard:
 
         # NSData を NSPasteboard に書き込む
         pb.setData_forType_(nsdata, NSPasteboardTypePNG)
+
+    @staticmethod
+    def set_source_marker(source: str):
+        """クリップボードに CopyBento 用のソースマーカーを付与（消去されるまで残る）。"""
+        try:
+            pb = NSPasteboard.generalPasteboard()
+            pb.setString_forType_(str(source), MacClipboard.MARKER_TYPE)
+        except Exception:
+            pass
+
+    @staticmethod
+    def get_source_marker():
+        """CopyBento 用のソースマーカーを取得（なければ None）。"""
+        try:
+            pb = NSPasteboard.generalPasteboard()
+            return pb.stringForType_(MacClipboard.MARKER_TYPE)
+        except Exception:
+            return None
